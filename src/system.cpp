@@ -2,6 +2,7 @@
 #include "system.h"
 #include "config.h"
 #include "features.h"
+#include "tally.h"
 #include <shlobj.h>
 #include <shellapi.h>
 #include <shobjidl.h>
@@ -105,11 +106,13 @@ bool InstallBreaker(std::wstring* error) {
     if (StartWithWindowsEnabled()) RegWriteStr(HKEY_CURRENT_USER, kRunKey, L"Breaker", quoted + L" --tray");
     if (g_config.watchdogAtSignIn) RegWriteStr(HKEY_CURRENT_USER, kRunKey, L"BreakerWatchdog", quoted + L" --watchdog");
     RegWriteStr(HKEY_CURRENT_USER, L"Software\\Classes\\breaker\\shell\\open\\command", nullptr, quoted + L" \"%1\"");
+    if (g_config.tallyEnabled) RegWriteStr(HKEY_CURRENT_USER, kRunKey, L"BreakerTracker", quoted + L" --tracker");   // the installed copy starts it from now on
     Log(L"Installed to %ls", dir.c_str());
     return true;
 }
 
 void UninstallBreaker(bool keepSettings) {
+    tally::StopTracker();
     SetStartWithWindows(false);
     SetWatchdogAtSignIn(false);
     DeleteFileW(ShortcutPath().c_str());

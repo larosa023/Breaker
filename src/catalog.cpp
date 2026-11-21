@@ -405,6 +405,8 @@ TOOL(L"tool.winver", L"About Windows", L"Version and build number.", L"winver ve
 {L"go.watchdog", L"~", L"Breaker", L"Update watchdog", L"See which of your settings Windows changed back.", L"watchdog reset windows update changed restore", K, L"breaker:watchdog"},
 {L"go.snapshots", L"~", L"Breaker", L"Snapshots", L"Export all your settings to a file, or apply one to this PC.", L"snapshot export import backup migrate new pc", K, L"breaker:snapshots"},
 {L"go.checkup", L"~", L"Breaker", L"PC Checkup", L"Every recommendation you haven't applied yet, in one list.", L"checkup health recommendations optimize tune up", K, L"breaker:checkup"},
+{L"go.screentime", L"~", L"Breaker", L"Screen time", L"How long you spend in each app and game, today, this week and this month.", L"screen time usage hours apps games tally tracking", K, L"breaker:screentime"},
+{L"go.screentimeSettings", L"~", L"Breaker", L"Screen time settings", L"Daily limits, the weekly summary, apps to never track, export to CSV and clearing history.", L"screen time limits never track export csv clear history privacy", K, L"breaker:settings/screentime"},
 {L"go.myapps", L"~", L"Breaker", L"My Apps", L"Settings, launch and updates for Foyer, Strata and the rest of the suite.", L"foyer strata faderly tonely ember mantel marq lumora suite", K, L"breaker:myapps"},
 {L"go.updates", L"~", L"Breaker", L"Breaker updates", L"Check for a new version, choose Stable or Beta.", L"breaker update version release beta", K, L"breaker:settings/updates"},
 {L"go.windows", L"~", L"Breaker", L"Open Windows Settings", L"The real Settings app is always one click away.", L"windows settings original real", K, L"ms-settings:"},

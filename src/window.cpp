@@ -29,7 +29,7 @@ void ReleaseInstanceMutex();   // main.cpp
 namespace {
 enum ZoneKind {
     ZNone, ZSide, ZTab, ZBack, ZFwd, ZSearch, ZFilter, ZCrumb, ZWinSettings, ZUpdatePill, ZCapMin, ZCapMax, ZCapClose,
-    ZRow, ZTile, ZToggle, ZChoice, ZSlider, ZText, ZInfo, ZAction, ZChip, ZToastAction, ZScroll, ZPromptField, ZPromptOk, ZPromptCancel,
+    ZRow, ZTile, ZToggle, ZChoice, ZSlider, ZText, ZInfo, ZAction, ZChip, ZToastAction, ZScroll, ZPromptField, ZPromptOk, ZPromptCancel, ZBar,
 };
 enum Chip { ChipPin, ChipProfile, ChipWindows, ChipLink, ChipRecommended };
 enum Area { AreaSidebar, AreaContent, AreaSearch, AreaFilter };
@@ -236,7 +236,10 @@ bool UiPickFile(const wchar_t* filter, std::wstring& path, bool save, const wcha
     ofn.nMaxFile = (DWORD)std::size(buf);
     ofn.lpstrDefExt = defExt;
     ofn.Flags = OFN_NOCHANGEDIR | (save ? OFN_OVERWRITEPROMPT : OFN_FILEMUSTEXIST);
-    if (!(save ? GetSaveFileNameW(&ofn) : GetOpenFileNameW(&ofn))) return false;
+    if (!(save ? GetSaveFileNameW(&ofn) : GetOpenFileNameW(&ofn))) {
+        if (DWORD e = CommDlgExtendedError()) Log(L"File dialog failed (error 0x%lx)", e);
+        return false;
+    }
     path = buf;
     return true;
 }
@@ -448,12 +451,17 @@ static void TrimPageCache() {
     }
 }
 
+static thread_local std::wstring t_builderRoute;
+std::wstring BuilderRoute() { return t_builderRoute; }
+
 static void RunBuilder(PageBuilder builder, int slot) {
     int gen = g_gen;
     std::wstring route = g_route;
     RunAsync([builder, slot, gen, route] {
         auto rows = std::make_shared<std::vector<Row>>();
+        t_builderRoute = route;
         builder(*rows);
+        t_builderRoute.clear();
         Ui([rows, slot, gen, route] {
             PageCache& pc = g_pageCache[route];
             (slot == 1 ? pc.dyn1 : pc.dyn2) = *rows;
@@ -464,6 +472,9 @@ static void RunBuilder(PageBuilder builder, int slot) {
             (slot == 1 ? g_rowsDyn1 : g_rowsDyn2) = std::move(*rows);
             (slot == 1 ? g_loading1 : g_loading2) = false;
             Merge();
+            // settings that came with these rows still need their current values read
+            for (auto& r : g_rows)
+                if (IsSetting(r) && (!r.known || (r.ctl == CtlChoice && r.choices.empty()))) { RefreshValues(); break; }
         });
     });
 }
@@ -853,7 +864,7 @@ static float ControlW(const Row& r) {
         case CtlChoice: return std::min(270.0f, MeasureWidth(ChoiceText(r), g_fUi) + 46);
         case CtlSlider: return 232;
         case CtlText: return (r.wide ? 300.0f : 210.0f);
-        case CtlLink: return 30;
+        case CtlLink: return 30 + (r.valueText.empty() ? 0 : std::min(200.0f, MeasureWidth(r.valueText, g_fRight) + 14));
         default: return r.valueText.empty() ? 0 : std::min(320.0f, MeasureWidth(r.valueText, g_fRight) + 8);
     }
 }
@@ -878,29 +889,43 @@ static void Layout() {
     int cols = std::clamp((int)((cw + 8) / 250), 1, 4), col = 0;
     float tileW = (cw - (cols - 1) * 8) / cols, minH = Compact() ? 44.0f : 56.0f, padV = Compact() ? 9.0f : 13.0f;
     bool lastTile = false;
+    float tileH = 78;
     for (int vi = 0; vi < (int)g_vis.size(); ++vi) {
         const Row& r = g_rows[g_vis[vi]];
         LRow L{};
         L.row = g_vis[vi];
         L.head = !prev || *prev != r.group;
         if (L.head) {
-            if (lastTile && col != 0) y += 78 + 8;
+            if (lastTile && col != 0) y += tileH + 8;
             col = 0;
             if (!r.group.empty()) y += (prev ? 16.0f : 2.0f) + 26;
             else if (prev) y += 10;
         }
         prev = &r.group;
         if (r.tile) {
-            L.x = left + col * (tileW + 8);
+            int tcols = r.stat ? std::clamp((int)((cw + 8) / 200), 1, 3) : cols;
+            float tw = r.stat ? (cw - (tcols - 1) * 8) / tcols : tileW;
+            tileH = r.stat ? 100.0f : 78.0f;
+            L.x = left + col * (tw + 8);
             L.y = y;
-            L.w = tileW;
-            L.h = 78;
+            L.w = tw;
+            L.h = tileH;
             g_lay.push_back(L);
             lastTile = true;
-            if (++col >= cols) { col = 0; y += 78 + 8; }
+            if (++col >= tcols) { col = 0; y += tileH + 8; }
             continue;
         }
-        if (lastTile && col != 0) { y += 78 + 8; col = 0; }
+        if (lastTile && col != 0) { y += tileH + 8; col = 0; }
+        if (!r.chart.empty()) {
+            L.x = left;
+            L.y = y;
+            L.w = cw;
+            L.h = 230;
+            lastTile = false;
+            g_lay.push_back(L);
+            y += L.h + kRowGap;
+            continue;
+        }
         lastTile = false;
         float actionsW = 0;
         for (auto& a : r.actions) actionsW += ActionW(a) + 8;
@@ -920,7 +945,7 @@ static void Layout() {
         g_lay.push_back(L);
         y += L.h + kRowGap;
     }
-    if (lastTile && col != 0) y += 78 + 8;
+    if (lastTile && col != 0) y += tileH + 8;
     g_contentH = y + 36;
     g_layDirty = false;
 }
@@ -1066,6 +1091,7 @@ static void PaintCaption() {
 static std::wstring PageTitle() {
     if (g_route == L"search") return L"Results for \x201C" + Trim(g_search.text) + L"\x201D";
     if (StartsWith(g_route, L"myapps/")) return g_route.substr(7);
+    if (StartsWith(g_route, L"screentime/app/")) return TallyAppTitle(g_route.substr(15));
     const PageInfo* p = FindPage(g_route);
     return p ? p->title : L"";
 }
@@ -1113,7 +1139,7 @@ static void PaintHeader() {
         y += bh + 10;
     }
     // tabs for the pages of this category
-    auto tabs = (g_route == L"search" || StartsWith(g_route, L"myapps/")) ? std::vector<const PageInfo*>() : TabsFor(cat);
+    auto tabs = (g_route == L"search" || StartsWith(g_route, L"myapps/") || StartsWith(g_route, L"screentime/app/")) ? std::vector<const PageInfo*>() : TabsFor(cat);
     if (tabs.size() > 1) {
         float tx = left;
         for (int i = 0; i < (int)tabs.size(); ++i) {
@@ -1147,8 +1173,75 @@ static void PaintHeader() {
     g_headerBottom = y + 2;
 }
 
+static void PaintStat(const LRow& L, int vi, float top) {
+    const Row& r = g_rows[L.row];
+    D2D1_RECT_F card = R(L.x, top, L.x + L.w, top + L.h);
+    g_cv.FillRound(card, g_theme.radius, Surface());
+    g_cv.StrokeRound(card, g_theme.radius, g_theme.divider);
+    if (g_kb && g_area == AreaContent && g_focus == vi) g_cv.StrokeRound(card, g_theme.radius, g_theme.accent, 2);
+    g_cv.Text(r.title, g_fSmall, R(card.left + 16, card.top + 12, card.right - 14, card.top + 30), g_theme.subtext);
+    g_cv.Text(r.valueText, g_fTitle, R(card.left + 16, card.top + 32, card.right - 14, card.top + 68), g_theme.text);
+    bool up = StartsWith(r.desc, L"\x25B2"), down = StartsWith(r.desc, L"\x25BC");
+    g_cv.Text(r.desc, g_fSmall, R(card.left + 16, card.top + 70, card.right - 14, card.bottom - 8), up || down ? Alpha(g_theme.accent, 0.95f) : g_theme.subtext);
+    AddZone(ZTile, vi, card);
+    AccAdd(g_zones.back(), r.title, ROLE_SYSTEM_STATICTEXT, STATE_SYSTEM_FOCUSABLE | (g_focus == vi && g_area == AreaContent ? STATE_SYSTEM_FOCUSED : 0), r.valueText, r.desc);
+}
+
+// A row holding a bar chart: title top left, valueText top right, a scale, one bar per value, labels under,
+// and the bar's own text when the pointer is over it.
+static void PaintChart(const LRow& L, int vi, float top) {
+    const Row& r = g_rows[L.row];
+    D2D1_RECT_F card = R(L.x, top, L.x + L.w, top + L.h);
+    g_cv.FillRound(card, g_theme.radius, Surface());
+    if (!g_theme.dark) g_cv.StrokeRound(card, g_theme.radius, g_theme.divider);
+    if (g_kb && g_area == AreaContent && g_focus == vi) g_cv.StrokeRound(card, g_theme.radius, g_theme.accent, 2);
+    AddZone(ZRow, vi, card);
+    g_cv.Text(r.title, g_fUiSemi, R(card.left + 16, card.top + 12, card.left + L.w / 2, card.top + 32), g_theme.text);
+    if (!r.valueText.empty()) g_cv.Text(r.valueText, g_fRight, R(card.left + L.w / 2, card.top + 12, card.right - 16, card.top + 32), g_theme.subtext);
+    float maxV = 0;
+    for (float v : r.chart) maxV = std::max(maxV, v);
+    // a round number for the top of the scale
+    float scale = maxV <= 0.25f ? 0.25f : maxV <= 0.5f ? 0.5f : maxV <= 1 ? 1.0f : std::ceil(maxV);
+    std::wstring scaleText = scale < 1 ? std::to_wstring((int)std::lround(scale * 60)) + L"m" : std::to_wstring((int)scale) + r.chartUnit;
+    float left = card.left + 44, right = card.right - 16, bTop = card.top + 52, bBottom = card.bottom - 34;
+    g_cv.Text(scaleText, g_fSmall, R(card.left + 12, bTop - 9, left - 6, bTop + 9), g_theme.subtext);
+    g_cv.Text(L"0", g_fSmall, R(card.left + 12, bBottom - 9, left - 6, bBottom + 9), g_theme.subtext);
+    g_cv.Fill(R(left, bTop, right, bTop + 1), Alpha(g_theme.divider, 0.8f));
+    g_cv.Fill(R(left, (bTop + bBottom) / 2, right, (bTop + bBottom) / 2 + 1), Alpha(g_theme.divider, 0.5f));
+    g_cv.Fill(R(left, bBottom, right, bBottom + 1), g_theme.divider);
+    int n = (int)r.chart.size();
+    float slot = (right - left) / std::max(1, n), bw = std::min(slot * 0.62f, 44.0f);
+    int hot = -1;
+    for (int i = 0; i < n; ++i) {
+        float cx = left + slot * (i + 0.5f), h = scale > 0 ? (bBottom - bTop) * std::min(1.0f, r.chart[i] / scale) : 0;
+        D2D1_RECT_F bar = R(cx - bw / 2, bBottom - std::max(h, 2.0f), cx + bw / 2, bBottom);
+        bool isHot = Hot(ZBar, vi, i);
+        if (isHot) hot = i;
+        D2D1_COLOR_F c = h < 1 ? g_theme.divider : i == r.chartHi ? g_theme.accent : Alpha(g_theme.accent, isHot ? 0.75f : 0.45f);
+        g_cv.FillRound(bar, std::min(4.0f, bw / 3), c);
+        if (i < (int)r.chartLabels.size() && !r.chartLabels[i].empty())
+            g_cv.Text(r.chartLabels[i], g_fCenter, R(cx - slot / 2 - 8, bBottom + 6, cx + slot / 2 + 8, bBottom + 26), i == r.chartHi ? g_theme.text : g_theme.subtext);
+        AddZone(ZBar, vi, R(cx - slot / 2, bTop, cx + slot / 2, bBottom + 26), i);
+    }
+    if (hot >= 0 && hot < (int)r.chartTips.size()) {
+        const std::wstring& tip = r.chartTips[hot];
+        float tw = MeasureWidth(tip, g_fSmall) + 18, cx = left + slot * (hot + 0.5f);
+        float tx = std::clamp(cx - tw / 2, card.left + 8, card.right - 8 - tw);
+        float h = scale > 0 ? (bBottom - bTop) * std::min(1.0f, r.chart[hot] / scale) : 0;
+        float ty = std::max(card.top + 6, bBottom - h - 30);
+        D2D1_RECT_F tr = R(tx, ty, tx + tw, ty + 22);
+        g_cv.FillRound(tr, 6, g_theme.dark ? Rgb(0x3A3A42) : Rgb(0xFFFFFF));
+        g_cv.StrokeRound(tr, 6, g_theme.divider);
+        g_cv.Text(tip, g_fSmall, R(tr.left + 9, tr.top, tr.right, tr.bottom), g_theme.dark ? Rgb(0xF5F5F7) : Rgb(0x1A1A1F));
+    }
+    std::wstring summary = r.title + L". " + r.valueText;
+    for (auto& t : r.chartTips) summary += L". " + t;
+    AccAdd(g_zones[g_zones.size() - n - 1], r.title, ROLE_SYSTEM_CHART, STATE_SYSTEM_FOCUSABLE | (g_focus == vi && g_area == AreaContent ? STATE_SYSTEM_FOCUSED : 0), r.valueText, summary);
+}
+
 static void PaintTile(const LRow& L, int vi, float top) {
     const Row& r = g_rows[L.row];
+    if (r.stat) { PaintStat(L, vi, top); return; }
     D2D1_RECT_F card = R(L.x, top, L.x + L.w, top + L.h);
     bool hot = Hot(ZTile, vi), on = r.ctl == CtlToggle && r.value == L"1" && r.known;
     D2D1_COLOR_F bg = on ? Mix(Surface(), g_theme.accent, g_theme.dark ? 0.16f : 0.12f) : Surface();
@@ -1260,6 +1353,12 @@ static void PaintRow(const LRow& L, int vi, float top) {
         bool inside = StartsWith(r.target, L"breaker:") || StartsWith(r.target, L"action:");
         g_cv.Glyph(inside ? 0xE76C : 0xE8A7, g_fIconSm, R(x - 26, top, x, top + bodyH), g_theme.subtext);
         x -= 30;
+        if (!r.valueText.empty()) {
+            float w = std::min(200.0f, MeasureWidth(r.valueText, g_fRight) + 14);
+            g_cv.Text(r.valueText, g_fRight, R(x - w, top, x - 4, top + bodyH), g_theme.text);
+            x -= w;
+            accValue = r.valueText;
+        }
         accRole = ROLE_SYSTEM_LINK;
         accAction = L"Open";
     } else if (!r.valueText.empty()) {
@@ -1347,7 +1446,9 @@ static void PaintRows() {
         if (top > g_H) break;
         if (top + L.h < viewTop - 40) continue;
         if (head) g_cv.Text(r.group, g_fGroup, R(r.tile ? ContentLeft() : L.x, top - 26, ContentLeft() + ContentWidth(), top - 4), g_theme.text);
-        if (r.tile) PaintTile(L, vi, top); else PaintRow(L, vi, top);
+        if (r.tile) PaintTile(L, vi, top);
+        else if (!r.chart.empty()) PaintChart(L, vi, top);
+        else PaintRow(L, vi, top);
     }
     (void)prev;
     if (g_vis.empty() && !g_filter.text.empty())

@@ -15,5 +15,5 @@ if(MSVC)
   target_compile_options(Breaker PRIVATE /W4 /utf-8 /permissive-)
   target_link_options(Breaker PRIVATE /MANIFEST:NO)   # manifest comes from breaker.rc
 endif()
-target_link_libraries(Breaker PRIVATE d2d1 dwrite ole32 oleaut32 uuid dwmapi shcore shell32 user32 gdi32 advapi32 shlwapi windowscodecs comctl32 uxtheme winhttp bcrypt comdlg32 version powrprof winspool iphlpapi wlanapi rasapi32 oleacc)
+target_link_libraries(Breaker PRIVATE d2d1 dwrite ole32 oleaut32 uuid dwmapi shcore shell32 user32 gdi32 advapi32 shlwapi windowscodecs comctl32 uxtheme winhttp bcrypt comdlg32 version powrprof winspool iphlpapi wlanapi rasapi32 oleacc wtsapi32)
 set_target_properties(Breaker PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/dist)

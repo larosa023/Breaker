@@ -3,7 +3,7 @@
 A fast, modern replacement for the Windows 11 Settings app and the old Control Panel.
 Part of the larosa023 suite of lightweight Windows apps (Foyer, Strata, Faderly, Tonely, Ember, Mantel, Marq, Lumora…), and the control center for all of them.
 
-**Status: v1.1.0.** Everything in the original plan, plus PC Checkup, restore points, time-of-day profiles and a performance pass. See [CHANGELOG-latest.md](CHANGELOG-latest.md).
+**Status: v1.2.0.** Everything in the original plan, plus Screen time, PC Checkup, restore points, time-of-day profiles and a performance pass. See [CHANGELOG-latest.md](CHANGELOG-latest.md).
 
 - **One place:** System, Devices, Network, Personalization, Apps, Gaming, Accounts, Privacy & Security, Windows Update, Debloat and Advanced. About 300 settings and Control Panel items, each with a one-sentence explanation.
 - **Search:** Ctrl+K, or just start typing. Results update on every keystroke, understand synonyms ("dark", "theme" and "night" find the same switches) and forgive typos ("blutooth").
@@ -13,6 +13,7 @@ Part of the larosa023 suite of lightweight Windows apps (Foyer, Strata, Faderly,
 - **Snapshots:** every setting in one file, to apply after a fresh install or on another PC.
 - **PC Checkup:** every recommendation you haven't applied yet, across all categories, with Apply all.
 - **Restore points:** big batches of changes (Debloat, Checkup, snapshots) make a System Restore point first.
+- **Screen time:** how long you spend in each app and game, today, this week and this month, with categories, daily limits, a weekly summary and CSV export. A tiny background tracker keeps counting when Breaker is closed.
 - **Themes and My Apps:** the suite's shared theme format, plus settings, launch and updates for the other suite apps.
 
 ---
@@ -38,7 +39,31 @@ running or while a setting is being changed. Choose Stable or Beta in **Breaker 
 Settings then go in a `data` folder beside it.
 
 Command line: `Breaker.exe system/display` opens a page · `breaker://privacy/telemetry#privacy.adId` links to one setting ·
-`--tray` starts in the tray · `--watchdog` checks your settings at sign-in and exits if nothing changed · `--quit` · `--uninstall`.
+`--tray` starts in the tray · `--tracker` runs the screen time tracker · `--watchdog` checks your settings at sign-in and exits if nothing changed · `--quit` · `--uninstall`.
+
+## Screen time
+
+**Screen time** in the sidebar has three tabs, **Today**, **This week** and **This month**, each with totals (screen time, gaming,
+most used app), a bar chart per day, time by category and a ranked list of apps. Click an app for its last 30 days, to change its
+category, give it a daily limit, stop tracking it or delete its history.
+
+**How it counts:** a small background process, `Breaker.exe --tracker`, notes which app is in front every 5 seconds. It's the same
+exe started in a headless mode: one hidden window, no graphics, below-normal priority with Windows' power throttling on, and it
+writes to disk every few minutes. It starts with Windows (the `BreakerTracker` entry in your Run key) while tracking is on, and
+restarts itself on the new copy when Breaker is updated, by Breaker's own updater or by Hangar.
+
+- Not counted: the lock screen, sleep, and idle time (no input for 2 minutes, adjustable), unless a game or video is keeping the screen on.
+- **Games:** an app is tagged as a game when it lives in a Steam, Epic, GOG or Xbox games folder, was launched by Steam, Epic,
+  GOG Galaxy or RetroArch, or runs full screen for a while. The name comes from Steam's `appmanifest` files, Epic's install
+  manifests or GOG's registry entries, so you see "Hollow Knight", not `hollow_knight.exe`. Each RetroArch game is counted separately.
+- **Categories:** Games, Work, Browsing, Media, Chat and Other, picked from a list of well-known apps; change any app from its page.
+- **Limits:** per app or per category. You get a notification at 80% and at 100%. Breaker never closes or blocks anything.
+- **Breaker settings → Screen time:** tracking on/off, the idle time, limit and weekly-summary notifications, category limits,
+  the never-track list, export to CSV and clearing history (today, last 7 days, a date range or everything).
+
+The data lives in `%APPDATA%\Breaker\screentime` (or `data\screentime` in portable mode): one small text file per month
+(`2026-11.tsv`: day, app, seconds), plus `apps.tsv` (names and which apps are games) and `state.tsv` (notifications already shown).
+Nothing is sent anywhere.
 
 ## Using Breaker
 
@@ -104,7 +129,10 @@ src/
   catalog.cpp        the settings catalog: one line per setting
   handlers.cpp       settings that need an API call (display, sound, power, mouse, firewall, services, DNS...)
   pages.cpp/.h       the page list and the builders that find things on this PC (drives, apps, services...)
-  features.cpp/.h    Home, Debloat, Profiles, Undo history, Update watchdog, Snapshots, search
+  features.cpp/.h    Home, Debloat, Profiles, Undo history, Update watchdog, Snapshots, PC Checkup, search
+  tally.cpp/.h       Screen time data: month files, dates, categories, talking to the tracker
+  tracker.cpp        the Screen time tracker ("--tracker"): sampling, idle/lock/sleep, game names, limits, weekly summary
+  tallyui.cpp        the Screen time pages, charts and settings tab
   appsettings.cpp    Breaker's own options and settings pages
   suite.cpp/.h       My Apps: the other suite apps' settings, updates and shared theme
   system.cpp/.h      install/uninstall, portable, start with Windows, tray, Win+I, breaker: links
@@ -154,4 +182,5 @@ Every push to `main` builds the exe in GitHub Actions. Bumping `BREAKER_VERSION`
 (versions with a `-`, like `1.1.0-beta.1`, are published as pre-releases for the Beta channel).
 
 Files: settings in `%APPDATA%\Breaker\config.json`, undo history in `history.json`, the watchdog's list in `desired.json`,
+screen time in `screentime\`,
 and a local log in `breaker.log` (**Breaker settings → About → Open log**). Nothing leaves the PC except the update check to GitHub.

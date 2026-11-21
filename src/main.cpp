@@ -4,6 +4,7 @@
 //   Breaker.exe system/display        open a page; also breaker://system/display#display.refresh
 //   Breaker.exe --tray                start hidden in the tray (Start with Windows)
 //   Breaker.exe --watchdog            sign-in check: stays (in the tray) only if Windows changed your settings
+//   Breaker.exe --tracker             the screen time tracker (no window; started with Windows when tracking is on)
 //   Breaker.exe --quit                close a running Breaker
 //   Breaker.exe --uninstall           remove Breaker (used by Installed apps)
 //   (--elevated <file> is the administrator helper; --updated / --rolled-back / --wait-old belong to the updater)
@@ -13,6 +14,8 @@
 #include "system.h"
 #include "suite.h"
 #include "features.h"
+#include "tally.h"
+#include "pages.h"
 #include <shellapi.h>
 #include <ole2.h>
 
@@ -31,6 +34,7 @@ static void InitEngine() {
     RegisterProviderHandlers();
     RegisterSuiteHandlers();
     RegisterAppHandlers();
+    RegisterTallyHandlers();
     EngineInit();
 }
 
@@ -49,6 +53,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         if (a == L"--quit") quit = true;
         else if (a == L"--tray") tray = true;
         else if (a == L"--watchdog") watchdog = true;
+        else if (a == L"--tracker") return TrackerMain();   // screen time tracker: headless, its own single instance
         else if (a == L"--uninstall") uninstall = true;
         else if (a == L"--wait-old") waitOld = true;
         else if (a == L"--elevated" && i + 1 < argc) elevatedFile = argv[++i];
@@ -130,6 +135,10 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
         return 1;
     }
     if (driftCount) MainNotifyDrift(driftCount);
+    {
+        bool on = g_config.tallyEnabled;   // start the screen time tracker, or replace an old one after an update
+        RunAsync([on] { tally::EnsureTracker(on); });
+    }
 
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {

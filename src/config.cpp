@@ -28,6 +28,7 @@ static const BoolField kBools[] = {
     {L"startWithWindows", &Config::startWithWindows}, {L"winI", &Config::winI},
     {L"watchdogAtSignIn", &Config::watchdogAtSignIn}, {L"watchdogEnabled", &Config::watchdogEnabled},
     {L"confirmRisky", &Config::confirmRisky}, {L"restorePointFirst", &Config::restorePointFirst}, {L"autoProfiles", &Config::autoProfiles},
+    {L"tallyEnabled", &Config::tallyEnabled}, {L"tallyWeekly", &Config::tallyWeekly}, {L"tallyLimitNotify", &Config::tallyLimitNotify},
     {L"autoCheck", &Config::autoCheck}, {L"autoInstall", &Config::autoInstall}, {L"maximized", &Config::maximized},
 };
 static const StrField kStrs[] = {
@@ -48,10 +49,11 @@ static const FloatField kFloats[] = {
 static const IntField kInts[] = {
     {L"checkHours", &Config::checkHours, 1, 168}, {L"winX", &Config::winX, -32000, 32000}, {L"winY", &Config::winY, -32000, 32000},
     {L"winW", &Config::winW, 640, 10000}, {L"winH", &Config::winH, 420, 10000},
+    {L"tallyIdleMin", &Config::tallyIdleMin, 1, 60},
 };
 static const ListField kLists[] = {
     {L"sidebarOrder", &Config::sidebarOrder}, {L"sidebarHidden", &Config::sidebarHidden},
-    {L"pinned", &Config::pinned}, {L"suiteApps", &Config::suiteApps},
+    {L"pinned", &Config::pinned}, {L"suiteApps", &Config::suiteApps}, {L"tallyNever", &Config::tallyNever},
 };
 
 static void DefaultProfiles(Config& c) {
@@ -108,6 +110,10 @@ void ConfigLoad() {
         DefaultProfiles(c);
     }
     if (fresh || !root.Get(L"pinned")) DefaultPins(c);
+    if (const json::Value* tc = root.Get(L"tallyCats"); tc && tc->type == json::Value::Object)
+        for (auto& kv : tc->obj) if (kv.second.type == json::Value::String) c.tallyCats.push_back({kv.first, kv.second.s});
+    if (const json::Value* tl = root.Get(L"tallyLimits"); tl && tl->type == json::Value::Object)
+        for (auto& kv : tl->obj) if (kv.second.type == json::Value::Number && kv.second.n > 0) c.tallyLimits.push_back({kv.first, (int)kv.second.n});
     g_config = std::move(c);
     Log(L"Config loaded: theme %ls, %u profiles, %u pinned", g_config.theme.c_str(), (unsigned)g_config.profiles.size(),
         (unsigned)g_config.pinned.size());
@@ -142,6 +148,12 @@ void ConfigSave() {
         ps.arr.push_back(pv);
     }
     root.Set(L"profiles", ps);
+    Value tc = Value::MakeObject();
+    for (auto& kv : c.tallyCats) tc.Set(kv.first, Value::Str(kv.second));
+    root.Set(L"tallyCats", tc);
+    Value tl = Value::MakeObject();
+    for (auto& kv : c.tallyLimits) tl.Set(kv.first, Value::Num(kv.second));
+    root.Set(L"tallyLimits", tl);
     std::wstring text;
     json::Write(root, text);
     if (!WriteUtf8FileAtomic(ConfigPath(), text)) Log(L"Failed to save config.json (error %lu)", GetLastError());

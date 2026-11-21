@@ -49,6 +49,15 @@ struct Config {
     std::vector<Profile> profiles;
     std::vector<std::wstring> suiteApps;   // extra app names for My Apps
 
+    // ---- Screen time (read by the background tracker too)
+    bool tallyEnabled = true;              // track which app is in front
+    int tallyIdleMin = 2;                  // no input this long (and no video or game) = away
+    bool tallyWeekly = true;               // a summary notification at the start of each week
+    bool tallyLimitNotify = true;          // gentle notifications at 80% and 100% of a limit
+    std::vector<std::wstring> tallyNever;  // app keys never recorded
+    std::vector<std::pair<std::wstring, std::wstring>> tallyCats;   // app key -> category the user chose
+    std::vector<std::pair<std::wstring, int>> tallyLimits;          // app key or "cat:Games" -> minutes a day
+
     // ---- Updates
     bool autoCheck = true;
     bool autoInstall = false;

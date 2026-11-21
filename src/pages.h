@@ -30,6 +30,11 @@ struct Row {
     bool alert = false;            // draw as a warning
     bool wide = false;             // text control: wide field
     bool tile = false;             // Home: draw as a quick-toggle tile
+    bool stat = false;             // with tile: a figure (title small, valueText large, desc below)
+    std::vector<float> chart;      // a bar chart row: one value per bar (valueText is drawn top right)
+    std::vector<std::wstring> chartLabels, chartTips;   // label under each bar ("" = none), text on hover
+    int chartHi = -1;              // bar drawn in the accent color (today)
+    std::wstring chartUnit;        // scale label suffix, e.g. "h"
     std::vector<RowAction> actions;
 };
 
@@ -77,6 +82,7 @@ bool UiConfirm(const std::wstring& text, const wchar_t* title = L"Breaker");
 bool UiPickFile(const wchar_t* filter, std::wstring& path, bool save = false, const wchar_t* defName = nullptr, const wchar_t* defExt = nullptr);
 void UiSync(std::function<void()> fn);   // from a background thread: run fn on the window thread and wait for it
 std::wstring UiRoute();            // the page being shown
+std::wstring BuilderRoute();       // inside a background page builder: the page it's building
 void UiThemeChanged();             // Breaker's own look changed: rebuild fonts and repaint
 void UiBusy(const std::wstring& text, std::function<void()> work, std::function<void()> done = nullptr);   // work off-thread
 
@@ -92,6 +98,14 @@ void BuildSnapshots(std::vector<Row>& rows);
 void BuildMyApps(std::vector<Row>& rows);
 void BuildMyAppsRemote(std::vector<Row>& rows);
 void BuildMyAppSettings(std::vector<Row>& rows);
+// Screen time (tallyui.cpp)
+void BuildTallyToday(std::vector<Row>& rows);
+void BuildTallyWeek(std::vector<Row>& rows);
+void BuildTallyMonth(std::vector<Row>& rows);
+void BuildTallyApp(std::vector<Row>& rows);
+void BuildTallySettings(std::vector<Row>& rows);
+void RegisterTallyHandlers();
+std::wstring TallyAppTitle(const std::wstring& key);   // window thread
 void BuildSettingsGeneral(std::vector<Row>& rows);
 void BuildSettingsAppearance(std::vector<Row>& rows);
 void BuildSettingsLayout(std::vector<Row>& rows);

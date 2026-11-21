@@ -724,6 +724,7 @@ const Category kCategories[] = {
     {L"update", L"Windows Update", 0xE895, 0},
     {L"debloat", L"Debloat", 0xE74D, 0},
     {L"advanced", L"Advanced", 0xE90F, 0},
+    {L"screentime", L"Screen time", 0xE916, 1},
     {L"checkup", L"PC Checkup", 0xE95E, 1},
     {L"myapps", L"My Apps", 0xE74C, 1},
     {L"profiles", L"Profiles", 0xE8AB, 1},
@@ -793,6 +794,9 @@ const PageInfo kPages[] = {
     {L"advanced/system", L"System tweaks", nullptr, nullptr, nullptr, nullptr, false},
     {L"advanced/legacy", L"Control Panel", L"Every classic Control Panel item and admin tool, searchable.", nullptr, nullptr, nullptr, true},
 
+    {L"screentime/today", L"Today", nullptr, BuildTallyToday, nullptr, nullptr, false},
+    {L"screentime/week", L"This week", nullptr, BuildTallyWeek, nullptr, nullptr, false},
+    {L"screentime/month", L"This month", nullptr, BuildTallyMonth, nullptr, nullptr, false},
     {L"checkup", L"PC Checkup", nullptr, BuildCheckup, nullptr, nullptr, false},
     {L"myapps", L"My Apps", L"The rest of the suite: open an app, change its settings, keep it up to date.", BuildMyAppsRemote, nullptr, BuildMyApps, false},
     {L"profiles", L"Profiles", L"Saved groups of settings. Apply one in a click, or let Breaker switch for you.", nullptr, nullptr, BuildProfiles, false},
@@ -803,6 +807,7 @@ const PageInfo kPages[] = {
     {L"settings/general", L"General", nullptr, nullptr, nullptr, BuildSettingsGeneral, false},
     {L"settings/appearance", L"Appearance", nullptr, nullptr, nullptr, BuildSettingsAppearance, false},
     {L"settings/layout", L"Layout", nullptr, nullptr, nullptr, BuildSettingsLayout, false},
+    {L"settings/screentime", L"Screen time", L"Breaker's screen time tracking: limits, notifications, privacy and your data.", nullptr, nullptr, BuildTallySettings, false},
     {L"settings/updates", L"Updates", nullptr, nullptr, nullptr, BuildSettingsUpdates, false},
     {L"settings/about", L"About", nullptr, nullptr, nullptr, BuildSettingsAbout, false},
 };
@@ -812,6 +817,8 @@ const PageInfo* FindPage(const std::wstring& route) {
     static const PageInfo appPage = {L"myapps/*", L"App settings", L"Suite apps save their settings when they close, so a running app is restarted when you change something here.", nullptr, nullptr, BuildMyAppSettings, false};
     for (auto& p : kPages) if (route == p.route) return &p;
     if (StartsWith(route, L"myapps/") && route.size() > 7) return &appPage;
+    static const PageInfo tallyApp = {L"screentime/app/*", L"App", nullptr, BuildTallyApp, nullptr, nullptr, false};
+    if (StartsWith(route, L"screentime/app/") && route.size() > 15) return &tallyApp;
     return nullptr;
 }
 

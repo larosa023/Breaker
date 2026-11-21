@@ -13,6 +13,6 @@ $ZIG c++ -target x86_64-windows-gnu -std=c++17 -O2 -s -municode \
   -Wl,--subsystem,windows \
   -ld2d1 -ldwrite -lole32 -loleaut32 -luuid -ldwmapi -lshcore -lshell32 -luser32 -lgdi32 -ladvapi32 -lshlwapi \
   -lcomctl32 -luxtheme -lwinhttp -lbcrypt -lcomdlg32 -lversion -lpowrprof -lwinspool -liphlpapi -lwlanapi \
-  -lrasapi32 -loleacc
+  -lrasapi32 -loleacc -lwtsapi32
 rm -f dist/Breaker.pdb
 ls -la dist/Breaker.exe
