@@ -724,6 +724,7 @@ const Category kCategories[] = {
     {L"update", L"Windows Update", 0xE895, 0},
     {L"debloat", L"Debloat", 0xE74D, 0},
     {L"advanced", L"Advanced", 0xE90F, 0},
+    {L"checkup", L"PC Checkup", 0xE95E, 1},
     {L"myapps", L"My Apps", 0xE74C, 1},
     {L"profiles", L"Profiles", 0xE8AB, 1},
     {L"history", L"Undo history", 0xE81C, 1},
@@ -792,6 +793,7 @@ const PageInfo kPages[] = {
     {L"advanced/system", L"System tweaks", nullptr, nullptr, nullptr, nullptr, false},
     {L"advanced/legacy", L"Control Panel", L"Every classic Control Panel item and admin tool, searchable.", nullptr, nullptr, nullptr, true},
 
+    {L"checkup", L"PC Checkup", nullptr, BuildCheckup, nullptr, nullptr, false},
     {L"myapps", L"My Apps", L"The rest of the suite: open an app, change its settings, keep it up to date.", BuildMyAppsRemote, nullptr, BuildMyApps, false},
     {L"profiles", L"Profiles", L"Saved groups of settings. Apply one in a click, or let Breaker switch for you.", nullptr, nullptr, BuildProfiles, false},
     {L"history", L"Undo history", L"Everything Breaker has changed, newest first. Ctrl+Z undoes the latest.", nullptr, nullptr, BuildHistory, true},

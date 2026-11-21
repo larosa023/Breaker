@@ -27,7 +27,7 @@ static const BoolField kBools[] = {
     {L"showRecommended", &Config::showRecommended}, {L"keepInTray", &Config::keepInTray},
     {L"startWithWindows", &Config::startWithWindows}, {L"winI", &Config::winI},
     {L"watchdogAtSignIn", &Config::watchdogAtSignIn}, {L"watchdogEnabled", &Config::watchdogEnabled},
-    {L"confirmRisky", &Config::confirmRisky}, {L"autoProfiles", &Config::autoProfiles},
+    {L"confirmRisky", &Config::confirmRisky}, {L"restorePointFirst", &Config::restorePointFirst}, {L"autoProfiles", &Config::autoProfiles},
     {L"autoCheck", &Config::autoCheck}, {L"autoInstall", &Config::autoInstall}, {L"maximized", &Config::maximized},
 };
 static const StrField kStrs[] = {

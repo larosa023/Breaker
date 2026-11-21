@@ -74,6 +74,7 @@ struct ApplyReport {
     unsigned flags = 0;       // union of the flags of everything that changed
     std::wstring error;       // first error, in plain words
     std::vector<uint64_t> seqs;   // history entries created
+    std::wstring note;        // extra information for the user (restore point result)
 };
 
 struct HistEntry {

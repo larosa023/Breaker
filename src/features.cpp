@@ -64,13 +64,51 @@ static std::vector<SearchItem>& SearchIndex() {
     return items;
 }
 
+// Edit distance (insert, delete, change, swap neighbours), giving up early once it passes `limit`
+static int EditDistance(const std::wstring& a, const std::wstring& b, int limit) {
+    int n = (int)a.size(), m = (int)b.size();
+    if (std::abs(n - m) > limit) return limit + 1;
+    std::vector<int> prev2(m + 1), prev(m + 1), cur(m + 1);
+    for (int j = 0; j <= m; ++j) prev[j] = j;
+    for (int i = 1; i <= n; ++i) {
+        cur[0] = i;
+        int best = cur[0];
+        for (int j = 1; j <= m; ++j) {
+            int cost = a[i - 1] == b[j - 1] ? 0 : 1;
+            cur[j] = std::min({prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost});
+            if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1]) cur[j] = std::min(cur[j], prev2[j - 2] + 1);
+            best = std::min(best, cur[j]);
+        }
+        if (best > limit) return limit + 1;
+        prev2.swap(prev);
+        prev.swap(cur);
+    }
+    return prev[m];
+}
+
+// "blutooth", "telemtry", "wallpapr": a word close to what was typed still matches, a little lower
+static bool NearWord(const std::wstring& text, const std::wstring& tok) {
+    if (tok.size() < 4) return false;
+    int limit = tok.size() >= 7 ? 2 : 1;
+    for (auto& w : Split(text, L" ")) {
+        if (w.size() + limit < tok.size()) continue;
+        // compare against the start of longer words too, so a half-typed word with a typo still finds it
+        std::wstring head = w.size() > tok.size() + 1 ? w.substr(0, tok.size()) : w;
+        if (EditDistance(tok, head, limit) <= limit) return true;
+    }
+    return false;
+}
+
 static int ScoreToken(const SearchItem& it, const std::wstring& tok) {
     size_t p = it.name.find(tok);
     if (p == 0) return 100;
     if (p != std::wstring::npos) return it.name[p - 1] == L' ' ? 70 : 45;
     p = it.keys.find(tok);
     if (p != std::wstring::npos) return (p == 0 || it.keys[p - 1] == L' ') ? 30 : 18;
-    return it.rest.find(tok) != std::wstring::npos ? 10 : 0;
+    if (it.rest.find(tok) != std::wstring::npos) return 10;
+    if (NearWord(it.name, tok)) return 24;
+    if (NearWord(it.keys, tok)) return 12;
+    return 0;
 }
 
 void SearchRows(const std::wstring& query, std::vector<Row>& out) {
@@ -146,6 +184,13 @@ void BuildHome(std::vector<Row>& rows) {
         rows.push_back(std::move(r));
     }
 
+    if (CheckupCount() > 0) {
+        Row r = Info(L"Needs your attention", CheckupCount() == 1 ? L"1 recommendation isn't applied" : std::to_wstring(CheckupCount()) + L" recommendations aren't applied",
+                     L"PC Checkup lists them in one place: ads, tracking and a few safety settings.");
+        r.actions.push_back({L"Review", [] { UiNavigate(L"checkup"); }});
+        rows.push_back(std::move(r));
+    }
+
     // ---- quick toggles
     for (auto& id : g_config.pinned) {
         const Def* d = FindDef(id);
@@ -195,7 +240,8 @@ void BuildHome(std::vector<Row>& rows) {
 // ============================================================ Debloat
 static const wchar_t* DebloatGroup(const Def& d) {
     std::wstring id = d.id;
-    if (id == L"privacy.recall" || StartsWith(id, L"taskbar.") || id == L"debloat.copilot" || id == L"debloat.edgeBackground" || id == L"wu.p2p")
+    if (id == L"privacy.recall" || StartsWith(id, L"taskbar.") || id == L"debloat.copilot" || id == L"debloat.edgeBackground" || id == L"wu.p2p" ||
+        id == L"debloat.askCopilot" || id == L"debloat.clickToDo" || id == L"debloat.edgeSidebar")
         return L"AI and background features";
     if (StartsWith(id, L"privacy.")) return L"Tracking and telemetry";
     if (id == L"start.bing" || id == L"start.highlights") return L"Search";
@@ -214,7 +260,10 @@ void BuildDebloat(std::vector<Row>& rows) {
                    L"Applies every recommended switch below in one go, with a single administrator prompt. Preinstalled apps are never removed automatically.");
     if (!pending.empty())
         top.actions.push_back({L"Apply recommended", [pending] {
-            if (UiConfirm(L"Turn off " + std::to_wstring(pending.size()) + L" ads, suggestions and background features?\n\nEvery change is recorded and can be undone from this page or the undo history.")) UiApply(pending, L"debloat");
+            if (!UiConfirm(L"Turn off " + std::to_wstring(pending.size()) + L" ads, suggestions and background features?\n\nEvery change is recorded and can be undone from this page or the undo history.")) return;
+            std::vector<Change> changes = pending;
+            PrependRestorePoint(changes, L"Before Breaker Debloat");
+            UiApply(changes, L"debloat");
         }});
     top.actions.push_back({L"Undo Debloat changes", [] {
         std::vector<uint64_t> seqs;
@@ -274,10 +323,8 @@ static const struct { const wchar_t* name; const wchar_t* label; const wchar_t* 
 };
 
 void BuildDebloatApps(std::vector<Row>& rows) {
-    std::wstring out;
-    if (!RunPowerShell(L"Get-AppxPackage | ForEach-Object { $_.Name }", &out, 60000)) return;
     std::set<std::wstring> installed;
-    for (auto& line : Split(out, L"\n")) installed.insert(ToLower(Trim(line)));
+    if (!InstalledAppx(installed, 30000)) return;
     for (auto& b : kBloat) {
         if (!installed.count(ToLower(b.name))) continue;
         Row r;
@@ -300,6 +347,7 @@ static std::wstring TriggerText(const std::wstring& t) {
     if (t == L"game") return L"Switches on while a full-screen game is running";
     if (t == L"battery") return L"Switches on while running on battery";
     if (StartsWith(t, L"exe:")) return L"Switches on while " + ReplaceAll(t.substr(4), L";", L", ") + L" is running";
+    if (StartsWith(t, L"time:")) return L"Switches on between " + ReplaceAll(t.substr(5), L"-", L" and ");
     return L"Applied when you choose it";
 }
 
@@ -374,8 +422,8 @@ void BuildProfiles(std::vector<Row>& rows) {
         trig.title = L"Switch automatically";
         trig.desc = L"Breaker applies this profile when the condition starts and puts your settings back when it ends. Needs \"Switch profiles automatically\" in Breaker settings.";
         trig.ctl = CtlChoice;
-        trig.choices = {{L"Never (manual only)", L""}, {L"While a full-screen game runs", L"game"}, {L"While on battery", L"battery"}, {L"While certain apps run\x2026", L"?exe:"}};
-        trig.value = StartsWith(p.trigger, L"exe:") ? L"?exe:" : p.trigger;
+        trig.choices = {{L"Never (manual only)", L""}, {L"While a full-screen game runs", L"game"}, {L"While on battery", L"battery"}, {L"While certain apps run\x2026", L"?exe:"}, {L"During certain hours\x2026", L"?time:"}};
+        trig.value = StartsWith(p.trigger, L"exe:") ? L"?exe:" : StartsWith(p.trigger, L"time:") ? L"?time:" : p.trigger;
         trig.flags = F_NOHIST;
         rows.push_back(std::move(trig));
 
@@ -429,6 +477,14 @@ static bool TriggerActive(const std::wstring& t) {
         return GetSystemPowerStatus(&s) && s.ACLineStatus == 0;
     }
     if (StartsWith(t, L"exe:")) return ProcessRunning(Split(t.substr(4), L";"));
+    if (StartsWith(t, L"time:")) {           // "time:22:00-07:00", which may wrap past midnight
+        int h1, m1, h2, m2;
+        if (swscanf(t.c_str() + 5, L"%d:%d-%d:%d", &h1, &m1, &h2, &m2) != 4) return false;
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        int now = st.wHour * 60 + st.wMinute, a = h1 * 60 + m1, b = h2 * 60 + m2;
+        return a <= b ? (now >= a && now < b) : (now >= a || now < b);
+    }
     return false;
 }
 
@@ -536,12 +592,7 @@ std::vector<Drift> WatchdogCompute() {
     bool anyAppx = false;
     for (auto& kv : desired) if (StartsWith(kv.first, L"appx:")) anyAppx = true;
     std::set<std::wstring> appx;
-    bool appxOk = false;
-    if (anyAppx) {
-        std::wstring o;
-        appxOk = RunPowerShell(L"Get-AppxPackage | ForEach-Object { $_.Name }", &o, 60000);
-        for (auto& line : Split(o, L"\n")) appx.insert(ToLower(Trim(line)));
-    }
+    bool appxOk = anyAppx && InstalledAppx(appx, 30000);
     for (auto& kv : desired) {
         std::wstring now;
         if (StartsWith(kv.first, L"appx:")) {
@@ -708,7 +759,11 @@ static void SnapshotImport(const std::wstring& path) {
             std::wstring msg = L"Apply this snapshot" + (from.empty() ? L"" : L" from " + from) + L"?\n\n" + std::to_wstring(changes->size()) + L" settings on this PC are different and will be changed";
             if (admin) msg += L" (" + std::to_wstring(admin) + L" need administrator rights, asked once)";
             msg += L".\nEverything is recorded in the undo history.";
-            if (UiConfirm(msg)) UiApply(*changes, L"snapshot");
+            if (UiConfirm(msg)) {
+                std::vector<Change> batch = *changes;
+                PrependRestorePoint(batch, L"Before applying a Breaker snapshot");
+                UiApply(batch, L"snapshot");
+            }
         }
         if (const json::Value* cfg = root->Get(L"breakerConfig"); cfg && cfg->type == json::Value::Object &&
             UiConfirm(L"Also use this snapshot's Breaker setup?\n\nThat's its theme, pinned settings, sidebar layout and profiles.")) {
@@ -745,4 +800,99 @@ void BuildSnapshots(std::vector<Row>& rows) {
         if (UiPickFile(L"Breaker snapshot (*.json)\0*.json\0All files\0*.*\0", path)) SnapshotImport(path);
     }});
     rows.push_back(std::move(apply));
+}
+
+// ============================================================ restore points
+void PrependRestorePoint(std::vector<Change>& changes, const std::wstring& why) {
+    if (!g_config.restorePointFirst || changes.size() < 3) return;
+    changes.insert(changes.begin(), Change{L"sys.restorePoint", why, L"Restore point"});
+}
+
+// ============================================================ PC Checkup
+static std::vector<std::wstring> g_checkup;      // window thread
+static int g_checkupCount = -1;
+static std::atomic<bool> g_checkupBusy{false};
+
+static bool CheckupCandidate(const Def& d) {
+    return d.rec && *d.rec && (d.ctl == CtlToggle || d.ctl == CtlChoice) && wcscmp(d.page, L"~") != 0;
+}
+
+static std::vector<std::wstring> CheckupCompute() {   // blocking
+    std::vector<std::wstring> out;
+    for (int i = 0; i < kDefCount; ++i) {
+        const Def& d = kDefs[i];
+        if (!CheckupCandidate(d)) continue;
+        std::wstring v;
+        if (!ReadValue(d.id, v) || v.empty()) continue;
+        CacheStore(d.id, v);
+        if (v != d.rec) out.push_back(d.id);
+    }
+    return out;
+}
+
+int CheckupCount() { return g_checkupCount; }
+
+void CheckupRefresh() {
+    if (g_checkupBusy.exchange(true)) return;
+    RunAsync([] {
+        auto ids = std::make_shared<std::vector<std::wstring>>(CheckupCompute());
+        Ui([ids] {
+            bool changed = (int)ids->size() != g_checkupCount;
+            g_checkup = *ids;
+            g_checkupCount = (int)ids->size();
+            g_checkupBusy = false;
+            if (changed && UiRoute() == L"home") UiReloadPage();
+        });
+    });
+}
+
+static std::wstring CategoryName(const std::wstring& page) {
+    const Category* c = FindCategory(CategoryOf(page));
+    return c ? c->name : L"Other";
+}
+
+void BuildCheckup(std::vector<Row>& rows) {
+    std::vector<std::wstring> ids = CheckupCompute();
+    Ui([ids] { g_checkup = ids; g_checkupCount = (int)ids.size(); });
+    std::vector<Change> all;
+    int admin = 0;
+    for (auto& id : ids) {
+        all.push_back({id, FindDef(id)->rec, L""});
+        if (FlagsOf(id) & F_ADMIN) ++admin;
+    }
+    Row top = Info(L"Checkup", ids.empty() ? L"Everything Breaker recommends is already set" : ids.size() == 1 ? L"1 recommendation isn't applied yet" : std::to_wstring(ids.size()) + L" recommendations aren't applied yet",
+                   ids.empty() ? L"Nice. Breaker checks again every time it starts, so you'll see it on Home if Windows changes something."
+                               : L"Every setting across Breaker where its recommended value differs from yours, in one list. Change them one at a time, or apply them all at once. Everything can be undone.");
+    top.alert = false;
+    if (!all.empty())
+        top.actions.push_back({L"Apply all", [all, admin] {
+            std::wstring msg = L"Apply all " + std::to_wstring(all.size()) + L" recommendations?";
+            if (admin) msg += L"\n\n" + std::to_wstring(admin) + L" need administrator rights; Windows asks once.";
+            if (g_config.restorePointFirst) msg += L"\nA System Restore point is made first.";
+            msg += L"\nEach change is recorded in the undo history.";
+            if (!UiConfirm(msg)) return;
+            std::vector<Change> batch = all;
+            PrependRestorePoint(batch, L"Before Breaker Checkup");
+            UiApply(batch, L"checkup");
+        }});
+    rows.push_back(std::move(top));
+    // grouped by category, in sidebar order
+    std::vector<std::pair<std::wstring, Row>> list;
+    for (auto& id : ids) {
+        const Def* d = FindDef(id);
+        Row r = RowFromDef(*d);
+        r.group = CategoryName(d->page);
+        std::wstring v;
+        if (CachedValue(id, v)) { r.value = v; r.known = true; }
+        const PageInfo* p = FindPage(d->page);
+        r.where = std::wstring(r.group) + (p && r.group != p->title ? L"  \x203A  " + std::wstring(p->title) : L"");
+        list.push_back({d->page, std::move(r)});
+    }
+    auto order = [](const std::wstring& page) {
+        std::wstring cat = CategoryOf(page);
+        for (int i = 0; i < kCategoryCount; ++i) if (cat == kCategories[i].id) return i;
+        return kCategoryCount;
+    };
+    std::stable_sort(list.begin(), list.end(), [&](auto& a, auto& b) { return order(a.first) < order(b.first); });
+    for (auto& kv : list) rows.push_back(std::move(kv.second));
 }

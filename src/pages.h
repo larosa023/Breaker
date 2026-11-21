@@ -61,6 +61,8 @@ const Category* FindCategory(const std::wstring& id);
 std::wstring CategoryOf(const std::wstring& route);   // "system/display" -> "system"
 Row RowFromDef(const Def& d);
 void RegisterProviderHandlers();
+#include <set>
+bool InstalledAppx(std::set<std::wstring>& out, DWORD maxAgeMs);   // lower-case package names; blocking
 void RegisterAppHandlers();
 
 // ---- services from window.cpp (window thread only)
@@ -82,6 +84,7 @@ void UiBusy(const std::wstring& text, std::function<void()> work, std::function<
 void BuildHome(std::vector<Row>& rows);
 void BuildDebloat(std::vector<Row>& rows);
 void BuildDebloatApps(std::vector<Row>& rows);
+void BuildCheckup(std::vector<Row>& rows);
 void BuildProfiles(std::vector<Row>& rows);
 void BuildHistory(std::vector<Row>& rows);
 void BuildWatchdog(std::vector<Row>& rows);

@@ -16,6 +16,7 @@
 #include <ctime>
 #include <set>
 #include <map>
+#include <mutex>
 #include <cmath>
 
 static WriteResult FromLong(LONG r, std::wstring& err) {
@@ -722,15 +723,39 @@ static bool AssocRead(const std::wstring& id, std::wstring& out) {
 }
 
 // ============================================================ Store apps  (appx:<package name>)
+// One PowerShell call lists every Store app; the Debloat page, the watchdog and undo all share it.
+static std::mutex g_appxLock;
+static std::set<std::wstring> g_appx;
+static DWORD g_appxAt = 0;
+static bool g_appxOk = false;
+
+bool InstalledAppx(std::set<std::wstring>& out, DWORD maxAgeMs) {
+    std::lock_guard<std::mutex> lock(g_appxLock);
+    if (!g_appxOk || GetTickCount() - g_appxAt > maxAgeMs) {
+        std::wstring o;
+        g_appxOk = RunPowerShell(L"Get-AppxPackage | ForEach-Object { $_.Name }", &o, 60000);
+        g_appx.clear();
+        for (auto& line : Split(o, L"\n")) { std::wstring t = ToLower(Trim(line)); if (!t.empty()) g_appx.insert(t); }
+        g_appxAt = GetTickCount();
+    }
+    out = g_appx;
+    return g_appxOk;
+}
+
+static void AppxForget() {
+    std::lock_guard<std::mutex> lock(g_appxLock);
+    g_appxOk = false;
+}
+
 static bool AppxRead(const std::wstring& id, std::wstring& out) {
-    std::wstring name = id.substr(5), o;
-    if (name.find_first_of(L"'\"`$;|&") != std::wstring::npos) return false;
-    if (!RunPowerShell(L"(Get-AppxPackage -Name '" + name + L"' | Measure-Object).Count", &o, 30000)) return false;
-    out = _wtoi(Trim(o).c_str()) > 0 ? L"1" : L"0";
+    std::set<std::wstring> apps;
+    if (!InstalledAppx(apps, 60000)) return false;
+    out = apps.count(ToLower(id.substr(5))) ? L"1" : L"0";
     return true;
 }
 static WriteResult AppxWrite(const std::wstring& id, const std::wstring& v, std::wstring& err) {
     std::wstring name = id.substr(5), o;
+    AppxForget();
     if (name.find_first_of(L"'\"`$;|&") != std::wstring::npos) { err = L"Unknown app."; return W_FAIL; }
     DWORD code = 1;
     if (v == L"0") {
@@ -801,6 +826,29 @@ static WriteResult DnsWrite(const std::wstring& id, const std::wstring& v, std::
     return W_FAIL;
 }
 
+// ============================================================ System Restore point  (sys.restorePoint = description)
+static bool RestorePointRead(const std::wstring&, std::wstring&) { return false; }
+static WriteResult RestorePointWrite(const std::wstring&, const std::wstring& v, std::wstring& err) {
+    if (!IsElevated()) return W_DENIED;
+    // Windows makes at most one restore point a day unless told otherwise; lift that just for this one
+    const wchar_t* key = L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\SystemRestore";
+    DWORD oldFreq = 0;
+    bool hadFreq = RegReadDword(HKEY_LOCAL_MACHINE, key, L"SystemRestorePointCreationFrequency", oldFreq);
+    RegWriteDword(HKEY_LOCAL_MACHINE, key, L"SystemRestorePointCreationFrequency", 0);
+    std::wstring desc = v.empty() ? L"Breaker" : v, o;
+    desc = ReplaceAll(ReplaceAll(desc, L"'", L""), L"`", L"");
+    DWORD code = 1;
+    RunPowerShell(L"$ErrorActionPreference='Stop';Checkpoint-Computer -Description '" + desc.substr(0, 60) + L"' -RestorePointType MODIFY_SETTINGS", &o, 5 * 60 * 1000, &code);
+    if (hadFreq) RegWriteDword(HKEY_LOCAL_MACHINE, key, L"SystemRestorePointCreationFrequency", oldFreq);
+    else RegRemoveValue(HKEY_LOCAL_MACHINE, key, L"SystemRestorePointCreationFrequency");
+    if (code == 0) return W_OK;
+    std::wstring low = ToLower(o);
+    err = (low.find(L"disabled") != std::wstring::npos || low.find(L"service cannot be started") != std::wstring::npos)
+              ? L"System Protection is off for the system drive"
+              : L"Windows couldn't create a restore point";
+    return W_FAIL;
+}
+
 // ============================================================ registration
 static const Handler kHandlers[] = {
     {L"display.resolution", DisplayRead, DisplayWrite, DisplayChoices, 0},
@@ -831,6 +879,7 @@ static const Handler kHandlers[] = {
     {L"assoc:", AssocRead, nullptr, nullptr, F_NOSNAP},
     {L"appx:", AppxRead, AppxWrite, nullptr, 0},
     {L"dns:", DnsRead, DnsWrite, DnsChoices, F_NOSNAP},
+    {L"sys.restorePoint", RestorePointRead, RestorePointWrite, nullptr, F_NOHIST | F_NOSNAP | F_NOWATCH},
 };
 
 void RegisterProviderHandlers() { RegisterHandlers(kHandlers, (int)std::size(kHandlers)); }

@@ -18,3 +18,10 @@ void ProfilesTick();                               // automatic switching; calle
 
 void SearchRows(const std::wstring& query, std::vector<Row>& out);
 bool SnapshotWrite(const std::wstring& path, std::wstring* err);   // blocking
+
+// Restore point before a big batch, when the option is on (puts "sys.restorePoint" first)
+void PrependRestorePoint(std::vector<Change>& changes, const std::wstring& why);
+
+// PC Checkup: every recommendation that isn't followed yet
+void CheckupRefresh();                             // window thread: recount in the background
+int CheckupCount();                                // -1 until the first count finishes

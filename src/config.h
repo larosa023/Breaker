@@ -41,6 +41,7 @@ struct Config {
     bool watchdogAtSignIn = false;         // quick check at sign-in, then exit
     bool watchdogEnabled = true;           // compare settings whenever Breaker starts
     bool confirmRisky = true;
+    bool restorePointFirst = true;        // make a System Restore point before big batches of changes
     bool autoProfiles = false;             // switch profiles on their triggers (needs the tray process)
     std::wstring activeProfile;
     std::wstring lastPage = L"home";

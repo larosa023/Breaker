@@ -3,14 +3,16 @@
 A fast, modern replacement for the Windows 11 Settings app and the old Control Panel.
 Part of the larosa023 suite of lightweight Windows apps (Foyer, Strata, Faderly, Tonely, Ember, Mantel, Marq, Lumora…), and the control center for all of them.
 
-**Status: v1.0.0.** Everything in the original plan is in this release.
+**Status: v1.1.0.** Everything in the original plan, plus PC Checkup, restore points, time-of-day profiles and a performance pass. See [CHANGELOG-latest.md](CHANGELOG-latest.md).
 
 - **One place:** System, Devices, Network, Personalization, Apps, Gaming, Accounts, Privacy & Security, Windows Update, Debloat and Advanced. About 300 settings and Control Panel items, each with a one-sentence explanation.
-- **Search:** Ctrl+K, or just start typing. Results update on every keystroke and understand synonyms ("dark", "theme" and "night" find the same switches).
+- **Search:** Ctrl+K, or just start typing. Results update on every keystroke, understand synonyms ("dark", "theme" and "night" find the same switches) and forgive typos ("blutooth").
 - **Undo:** every change is recorded. Ctrl+Z undoes the last one, the history page undoes any of them, and "restore everything to how it was on…" rolls back to a date.
-- **Profiles:** saved groups of settings (Gaming, Work, Battery Saver, Presentation, or your own), applied in one click or switched automatically.
+- **Profiles:** saved groups of settings (Gaming, Work, Battery Saver, Presentation, or your own), applied in one click or switched automatically: while a game runs, on battery, while certain apps run, or during set hours.
 - **Update watchdog:** notices when Windows changes a setting you chose and offers to put it back.
 - **Snapshots:** every setting in one file, to apply after a fresh install or on another PC.
+- **PC Checkup:** every recommendation you haven't applied yet, across all categories, with Apply all.
+- **Restore points:** big batches of changes (Debloat, Checkup, snapshots) make a System Restore point first.
 - **Themes and My Apps:** the suite's shared theme format, plus settings, launch and updates for the other suite apps.
 
 ---
@@ -80,7 +82,8 @@ The cost of native C++ is that every control is hand-drawn, which is also what g
 Every setting is an **id with a string value** (`colors.darkApps` = `"1"`). Three rules keep it safe:
 
 1. **Nothing slow runs on the window thread.** Pages paint immediately from a cache of last-known values, then background tasks
-   re-read the real values and correct the page. Slow sources (PowerShell, Windows Update) get their own task.
+   re-read the real values and correct the page. Slow sources (PowerShell, Windows Update) get their own task. Lists found on the
+   PC (services, apps, drives) are kept per page, so a revisit shows the last result instantly while a fresh copy is built.
 2. **One function changes things.** `ApplyChanges()` in `engine.cpp` captures the exact previous state, writes the new value,
    reads it back and records a history entry. Profiles, snapshots, Debloat, the watchdog and undo all go through it.
 3. **Admin rights only for the write that needs them.** Breaker runs as a normal user. If Windows refuses a write, only that

@@ -70,6 +70,12 @@ static std::vector<std::wstring> g_back, g_fwd;
 static int g_gen = 0;
 static std::vector<Row> g_rowsUi, g_rowsStatic, g_rowsDyn1, g_rowsDyn2, g_rows;
 static bool g_loading1 = false, g_loading2 = false;
+// Rows found on the PC, remembered per page: revisiting shows them instantly while a fresh copy is built
+struct PageCache { std::vector<Row> dyn1, dyn2; DWORD at1 = 0, at2 = 0; DWORD used = 0; };
+static std::unordered_map<std::wstring, PageCache> g_pageCache;
+constexpr DWORD kPageFreshMs = 20000;     // a revisit within this time doesn't rebuild at all
+// Text heights, so long lists (services, installed apps) don't re-measure every row on every layout
+static std::unordered_map<std::wstring, float> g_measure;
 static std::vector<int> g_vis;
 static std::vector<LRow> g_lay;
 static bool g_layDirty = true;
@@ -148,6 +154,7 @@ static void CreateFormats() {
     g_fCenter = Format(ui, 12.5f * k, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER, true);
     g_fMono = Format(MonoFont(), 11.5f * k, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, false, true);
     g_fLogo = Format(display, 14, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING, false);
+    g_measure.clear();
     g_layDirty = true;
 }
 
@@ -246,6 +253,8 @@ void UiPrompt(const std::wstring& title, const std::vector<std::wstring>& labels
         g_prompt.fields[i].SelectAll();
     }
     g_prompt.done = std::move(done);
+    SetForegroundWindow(g_hwnd);
+    SetFocus(g_hwnd);
     SetTimer(g_hwnd, TIMER_CARET, 530, nullptr);
     Redraw();
 }
@@ -431,12 +440,26 @@ static void RefreshValues() {
     });
 }
 
+static void TrimPageCache() {
+    while (g_pageCache.size() > 10) {
+        auto oldest = g_pageCache.begin();
+        for (auto it = g_pageCache.begin(); it != g_pageCache.end(); ++it) if (it->second.used < oldest->second.used) oldest = it;
+        g_pageCache.erase(oldest);
+    }
+}
+
 static void RunBuilder(PageBuilder builder, int slot) {
     int gen = g_gen;
-    RunAsync([builder, slot, gen] {
+    std::wstring route = g_route;
+    RunAsync([builder, slot, gen, route] {
         auto rows = std::make_shared<std::vector<Row>>();
         builder(*rows);
-        Ui([rows, slot, gen] {
+        Ui([rows, slot, gen, route] {
+            PageCache& pc = g_pageCache[route];
+            (slot == 1 ? pc.dyn1 : pc.dyn2) = *rows;
+            (slot == 1 ? pc.at1 : pc.at2) = GetTickCount();
+            pc.used = GetTickCount();
+            TrimPageCache();
             if (gen != g_gen) return;
             (slot == 1 ? g_rowsDyn1 : g_rowsDyn2) = std::move(*rows);
             (slot == 1 ? g_loading1 : g_loading2) = false;
@@ -458,8 +481,22 @@ static void BuildPage(bool keep) {
     } else if (page) {
         if (page->uiBuilder) page->uiBuilder(g_rowsUi);
         for (int i = 0; i < kDefCount; ++i) if (g_route == kDefs[i].page) g_rowsStatic.push_back(RowFromDef(kDefs[i]));
-        if (page->builder) { g_loading1 = true; RunBuilder(page->builder, 1); }
-        if (page->builder2) { g_loading2 = true; RunBuilder(page->builder2, 2); }
+        auto cached = g_pageCache.find(g_route);
+        PageCache* pc = cached == g_pageCache.end() ? nullptr : &cached->second;
+        if (pc) pc->used = GetTickCount();
+        auto start = [&](PageBuilder b, int slot) {
+            if (!b) return;
+            std::vector<Row>& dst = slot == 1 ? g_rowsDyn1 : g_rowsDyn2;
+            bool& loading = slot == 1 ? g_loading1 : g_loading2;
+            bool have = pc && (slot == 1 ? pc->at1 : pc->at2);
+            if (have && !keep) dst = slot == 1 ? pc->dyn1 : pc->dyn2;    // show the last result straight away
+            bool fresh = have && GetTickCount() - (slot == 1 ? pc->at1 : pc->at2) < kPageFreshMs;
+            if (fresh && !keep) return;                                  // just built: nothing to redo
+            loading = !have && dst.empty();
+            RunBuilder(b, slot);
+        };
+        start(page->builder, 1);
+        start(page->builder2, 2);
     }
     Merge();
     RefreshValues();
@@ -542,8 +579,30 @@ static void OpenLinkSpec(const std::wstring& spec) {
     UiNavigate(s, id);
 }
 
+static void RestartExplorer();
+
 static void RunAction(const std::wstring& name) {
-    if (name == L"clipclear") {
+    if (name == L"restartexplorer") {
+        RestartExplorer();
+    } else if (name == L"emptybin") {
+        if (!UiConfirm(L"Permanently delete everything in the Recycle Bin?\n\nThis can't be undone.")) return;
+        SHEmptyRecycleBinW(g_hwnd, nullptr, SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI);
+        UiToast(L"Recycle Bin emptied");
+        if (g_route == L"system/storage") BuildPage(true);
+    } else if (name == L"batteryreport") {
+        auto ok = std::make_shared<bool>(false);
+        std::wstring file = ExpandEnv(L"%TEMP%\\battery-report.html");
+        UiBusy(L"Building the battery report\x2026", [file, ok] {
+            DWORD code = 1;
+            RunCapture(L"powercfg.exe /batteryreport /output \"" + file + L"\"", nullptr, 60000, &code);
+            *ok = code == 0 && FileExists(file);
+        }, [file, ok] {
+            if (*ok) ShellOpen(file);
+            else UiToast(L"Windows couldn't make a battery report. This PC may not have a battery.");
+        });
+    } else if (name == L"restorepoint") {
+        UiApply({{L"sys.restorePoint", L"Made with Breaker", L"Restore point"}}, L"user");
+    } else if (name == L"clipclear") {
         if (OpenClipboard(g_hwnd)) { EmptyClipboard(); CloseClipboard(); }
         UiToast(L"Clipboard cleared");
     } else if (name == L"flushdns") {
@@ -577,6 +636,7 @@ static void UndoSeqs(std::vector<uint64_t> seqs) {
 
 static void OnApplied(const ApplyReport& rep, const std::vector<Change>& changes, const std::wstring& source) {
     bool reload = changes.size() > 1 || source != L"user" || rep.failed > 0 || g_route == L"home" || g_route == L"debloat";
+    if (rep.ok) CheckupRefresh();
     for (auto& c : changes) if (!FindDef(c.id)) reload = true;
     std::wstring text, action;
     std::function<void()> run;
@@ -594,11 +654,13 @@ static void OnApplied(const ApplyReport& rep, const std::vector<Change>& changes
             CachedValue(c.id, now);
             std::wstring name = c.label.empty() ? NameOf(c.id) : c.label;
             if (StartsWith(c.id, L"svcrun:")) text = name + (c.value == L"stop" ? L" stopped" : L" started");
+            else if (c.id == L"sys.restorePoint") text = L"Restore point created. Find it in System Restore (rstrui).";
             else text = name + L": " + DescribeValue(c.id, now.empty() ? c.value : now);
         } else {
             text = std::to_wstring(rep.ok) + L" settings changed";
             if (rep.failed) text += L", " + std::to_wstring(rep.failed) + L" couldn't be (" + rep.error + L")";
         }
+        if (!rep.note.empty()) text += L"  \x00B7  " + rep.note;
         if (rep.flags & F_REBOOT) text += L"  \x00B7  takes effect after a restart";
         else if (rep.flags & F_SIGNOUT) text += L"  \x00B7  takes effect after you sign out";
         std::vector<uint64_t> seqs = rep.seqs;
@@ -624,8 +686,10 @@ void UiApply(std::vector<Change> changes, const std::wstring& source) {
     if (changes.size() == 1 && !changes[0].value.empty() && changes[0].value[0] == L'?') {
         Change c = changes[0];
         std::wstring prefix = c.value.substr(1);
-        bool exe = prefix == L"exe:";
-        UiPrompt(exe ? L"Which apps?" : NameOf(c.id), {exe ? L"Program names, separated by semicolons (game.exe;other.exe)" : L"Value"}, {L""},
+        bool exe = prefix == L"exe:", time = prefix == L"time:";
+        UiPrompt(exe ? L"Which apps?" : time ? L"Which hours?" : NameOf(c.id),
+                 {exe ? L"Program names, separated by semicolons (game.exe;other.exe)" : time ? L"From-to in 24-hour time, like 22:00-07:00" : L"Value"},
+                 {time ? L"22:00-07:00" : L""},
                  [c, prefix, source](const std::vector<std::wstring>& v) {
                      std::wstring t = Trim(v[0]);
                      if (!t.empty()) UiApply({{c.id, prefix + t, c.label}}, source);
@@ -794,6 +858,19 @@ static float ControlW(const Row& r) {
     }
 }
 
+static float CachedHeight(const std::wstring& text, IDWriteTextFormat* f, float width, wchar_t kind) {
+    std::wstring key = text;
+    key += L'\x1f';
+    key += kind;
+    key += std::to_wstring((int)width);
+    auto it = g_measure.find(key);
+    if (it != g_measure.end()) return it->second;
+    if (g_measure.size() > 6000) g_measure.clear();
+    float h = MeasureHeight(text, f, width);
+    g_measure.emplace(std::move(key), h);
+    return h;
+}
+
 static void Layout() {
     g_lay.clear();
     float left = ContentLeft(), cw = ContentWidth(), y = 6;
@@ -829,12 +906,12 @@ static void Layout() {
         for (auto& a : r.actions) actionsW += ActionW(a) + 8;
         float infoW = HasInfo(r) ? 34.0f : 0.0f;
         L.textW = std::max(150.0f, cw - 32 - ControlW(r) - actionsW - infoW - 14);
-        L.descH = r.desc.empty() ? 0 : MeasureHeight(r.desc, g_fDesc, L.textW);
+        L.descH = r.desc.empty() ? 0 : CachedHeight(r.desc, g_fDesc, L.textW, L'd');
         float h = padV * 2 + 19 + (L.descH > 0 ? L.descH + 3 : 0) + (r.where.empty() ? 0 : 17) + (r.bar >= 0 ? 12 : 0);
         L.h = std::max(minH, h);
         if (g_expanded == RowKey(r) && HasInfo(r)) {
             std::wstring pt = PanelText(r);
-            L.panelH = 12 + (pt.empty() ? 0 : MeasureHeight(pt, g_fMono, cw - 32) + 10) + (ChipsFor(r).empty() ? 0 : 30) + 12;
+            L.panelH = 12 + (pt.empty() ? 0 : CachedHeight(pt, g_fMono, cw - 32, L'm') + 10) + (ChipsFor(r).empty() ? 0 : 30) + 12;
             L.h += L.panelH;
         }
         L.x = left;
@@ -1831,7 +1908,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             Redraw();
             return DefWindowProcW(hwnd, msg, wp, -1);
         case WM_ACTIVATE:
-            if (LOWORD(wp) != WA_INACTIVE && g_hwnd && IsWindowVisible(hwnd)) RefreshValues();   // pick up changes made elsewhere
+            if (LOWORD(wp) != WA_INACTIVE && g_hwnd && IsWindowVisible(hwnd)) {     // pick up changes made elsewhere
+                static DWORD last = 0;
+                if (GetTickCount() - last > 3000) { last = GetTickCount(); RefreshValues(); }
+            }
             Redraw();
             break;
         case WM_GETMINMAXINFO: {
@@ -1922,6 +2002,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 case TIMER_STARTUP:
                     KillTimer(hwnd, TIMER_STARTUP);
                     if (g_config.watchdogEnabled) WatchdogRefresh(false);
+                    CheckupRefresh();
                     break;
                 case TIMER_HEALTHY: KillTimer(hwnd, TIMER_HEALTHY); AutoUpdateOnStarted(); break;
                 case TIMER_UPDATE_CHECK: AutoUpdateOnTimer(); break;
@@ -1976,6 +2057,15 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
                 DiscardDevice();          // give the graphics memory back while hidden
                 g_rowsDyn1.clear();
                 g_rowsDyn2.clear();
+                g_rows.clear();
+                g_vis.clear();
+                g_lay.clear();
+                g_pageCache.clear();
+                g_measure.clear();
+                g_zones.clear();
+                g_acc.clear();
+                g_accZones.clear();
+                SetProcessWorkingSetSize(GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1);   // a tray icon shouldn't hold pages in RAM
                 return 0;
             }
             SaveWindowPlacement();

@@ -14,7 +14,7 @@
 #include <map>
 #include <algorithm>
 
-static const wchar_t* kSuite[] = {L"Foyer", L"Strata", L"Faderly", L"Tonely", L"Ember", L"Mantel", L"Marq", L"Lumora"};
+static const wchar_t* kSuite[] = {L"Foyer", L"Strata", L"Faderly", L"Tonely", L"Ember", L"Mantel", L"Marq", L"Lumora", L"Hangar"};
 
 namespace {
 struct Latest { std::wstring version, exeUrl, sumsUrl, page, notes; bool ok = false; };

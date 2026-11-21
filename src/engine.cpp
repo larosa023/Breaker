@@ -233,6 +233,8 @@ std::wstring ChoiceLabel(const std::wstring& id, const std::wstring& value) {
 
 std::wstring DescribeValue(const std::wstring& id, const std::wstring& value) {
     if (StartsWith(value, L"raw:")) return L"its earlier state";
+    if (StartsWith(value, L"time:")) return L"between " + ReplaceAll(value.substr(5), L"-", L" and ");
+    if (StartsWith(value, L"exe:")) return L"while " + ReplaceAll(value.substr(4), L";", L", ") + L" runs";
     const Def* d = FindDef(id);
     Ctl ctl = d ? d->ctl : CtlText;
     if (!d) {
@@ -389,7 +391,26 @@ static void Broadcast(unsigned flags, bool anyRegistry) {
     }
 }
 
+static ApplyReport ApplyCore(const std::vector<Change>& changes, const std::wstring& source);
+
+// A batch that starts with "sys.restorePoint" makes the restore point first, on its own, so it exists
+// before anything else changes. Saying no to its admin prompt cancels the whole batch.
 ApplyReport ApplyChanges(const std::vector<Change>& changes, const std::wstring& source) {
+    if (changes.empty() || changes[0].id != L"sys.restorePoint") return ApplyCore(changes, source);
+    ApplyReport rp = ApplyCore({changes[0]}, source);
+    if (changes.size() == 1) return rp;
+    if (rp.cancelled) {
+        rp.failed = (int)changes.size() - 1;
+        rp.error = L"Nothing was changed: administrator permission for the restore point wasn't given";
+        return rp;
+    }
+    std::vector<Change> rest(changes.begin() + 1, changes.end());
+    ApplyReport rep = ApplyCore(rest, source);
+    rep.note = rp.ok ? L"restore point created" : L"no restore point (" + rp.error + L")";
+    return rep;
+}
+
+static ApplyReport ApplyCore(const std::vector<Change>& changes, const std::wstring& source) {
     ApplyReport rep;
     struct Item { std::wstring before, was, err; int state = 0; };   // 0 pending, 1 ok, 2 failed, 3 needs admin
     std::vector<Item> items(changes.size());

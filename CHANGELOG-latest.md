@@ -1,14 +1,24 @@
-## Breaker 1.0.0
+## Breaker 1.1.0
 
-The first release: a fast replacement for Windows Settings and Control Panel.
+A refinements and performance update, with a few new features.
 
-- **Every setting in one place:** System, Devices, Network, Personalization, Apps, Gaming, Accounts, Privacy & Security, Windows Update, Debloat and Advanced, each explained in plain English with a recommended value where it helps.
-- **Search as you type** (Ctrl+K) across every setting and Control Panel item, with synonyms.
-- **Undo for everything:** a history of every change with one-click revert, Ctrl+Z, and "restore everything to how it was on a date".
-- **Profiles** (Gaming, Work, Battery Saver, Presentation, or your own) that apply in one click or switch by themselves.
-- **Update watchdog:** tells you when Windows changes a setting you chose, and puts it back.
-- **Snapshots:** save every setting to a file and apply it to a fresh install or another PC.
-- **Themes** shared with Foyer and Strata, plus **My Apps** to launch, configure and update the rest of the suite.
-- Built-in updater (Stable and Beta, verified downloads, automatic rollback), installer or portable mode, tray icon, and an optional Win+I shortcut.
+### New
+- **PC Checkup:** one page that lists every setting where Breaker's recommendation differs from yours, across all categories. Fix them one at a time or with **Apply all**. Home tells you how many are left.
+- **Restore point before big changes:** Debloat's "Apply recommended", Checkup's "Apply all" and applying a snapshot now make a System Restore point first (one admin prompt; on by default, in Breaker settings → General). There's also **Create a restore point now** under Advanced → System tweaks.
+- **Profiles by time of day:** a profile can switch on during set hours, like 22:00–07:00, alongside the game, battery and app triggers.
+- **Search forgives typos:** "blutooth", "telemtry" and "wallpapr" still find the right settings.
+- **Quick actions:** Restart File Explorer, Empty the Recycle Bin and Battery report, all searchable.
+- **13 more settings:** File Explorer's side pane (Home, Gallery, OneDrive), virtual desktops on the taskbar and in Alt+Tab, skipping the lock screen, the sign-in blur, starting startup apps without the 10-second delay, plus new Debloat switches (Ask Copilot in the right-click menu, Click to Do, Copilot and shopping in Edge, online tips in Settings).
+- **Hangar** shows up in My Apps.
 
-Windows may show a SmartScreen warning the first time because the exe isn't code-signed: **More info → Run anyway**.
+### Faster
+- Pages you've visited open instantly from memory and refresh behind the scenes; a revisit within 20 seconds doesn't re-read anything.
+- Long lists (services, installed apps) no longer re-measure every row when the window redraws.
+- The list of installed Store apps is read once and shared by Debloat, the watchdog and undo, instead of a separate PowerShell call each time.
+- Switching back to Breaker refreshes values at most every few seconds.
+- In the tray, Breaker now lets go of its pages and trims its memory.
+
+### Fixed
+- Profile triggers read naturally in messages ("between 09:00 and 17:30") instead of showing raw values.
+- Text prompts take keyboard focus straight away when they open from a menu.
+- PC Checkup groups follow the sidebar order.

@@ -19,7 +19,7 @@ struct NumOpt { const wchar_t* id; float Config::*m; float scale; };
 static const BoolOpt kBools[] = {
     {L"app.keepInTray", &Config::keepInTray, false}, {L"app.startWithWindows", &Config::startWithWindows, false},
     {L"app.winI", &Config::winI, false}, {L"app.watchdogEnabled", &Config::watchdogEnabled, false},
-    {L"app.watchdogAtSignIn", &Config::watchdogAtSignIn, false}, {L"app.confirmRisky", &Config::confirmRisky, false},
+    {L"app.watchdogAtSignIn", &Config::watchdogAtSignIn, false}, {L"app.confirmRisky", &Config::confirmRisky, false}, {L"app.restorePointFirst", &Config::restorePointFirst, false},
     {L"app.autoProfiles", &Config::autoProfiles, false}, {L"app.showRecommended", &Config::showRecommended, true},
     {L"app.useWindowsAccent", &Config::useWindowsAccent, true}, {L"app.respectHighContrast", &Config::respectHighContrast, true},
     {L"app.syncSuiteTheme", &Config::syncSuiteTheme, false}, {L"app.autoCheck", &Config::autoCheck, false},
@@ -175,6 +175,7 @@ void BuildSettingsGeneral(std::vector<Row>& rows) {
     rows.push_back(Opt(L"app.winI", L"Running in the background", L"Open Breaker with Win+I", L"Win+I opens Breaker instead of Windows Settings. Shift+Win+I still opens the real Settings app, and so does the button in Breaker's title bar. Turns on the two options above, because Breaker has to be running to hear the shortcut.", CtlToggle));
     rows.push_back(Opt(L"app.autoProfiles", L"Running in the background", L"Switch profiles automatically", L"Applies a profile when its condition starts (a game, battery power, a certain app) and puts your settings back when it ends. Needs the tray icon.", CtlToggle));
     rows.push_back(Opt(L"app.confirmRisky", L"Safety", L"Ask before risky changes", L"Shows a warning before changes that can break something or lock you out, like turning off the firewall or disabling a service.", CtlToggle));
+    rows.push_back(Opt(L"app.restorePointFirst", L"Safety", L"Make a restore point before big changes", L"Before Debloat, Checkup or a snapshot changes many settings at once, Breaker asks Windows for a System Restore point. Needs System Protection to be on for your system drive; Breaker never turns it on by itself.", CtlToggle));
     rows.push_back(Opt(L"app.showRecommended", L"Safety", L"Show recommendations", L"Marks the value Breaker suggests next to settings where it helps.", CtlToggle));
     Row real = Info(L"Windows", L"Open Windows Settings", L"The real Settings app is always reachable.");
     real.ctl = CtlLink;

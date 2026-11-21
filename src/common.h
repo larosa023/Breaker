@@ -20,7 +20,7 @@
 #include <iterator>
 #include <functional>
 
-#define BREAKER_VERSION L"1.0.0"
+#define BREAKER_VERSION L"1.1.0"
 #define BREAKER_WNDCLASS L"BreakerMain"
 
 // Messages posted to the main window
